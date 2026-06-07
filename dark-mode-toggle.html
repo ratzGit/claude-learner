@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather & Dark Mode</title>
+  <style>
+    :root {
+      --bg: #f5f5f5;
+      --text: #111111;
+      --card-bg: #ffffff;
+      --card-shadow: rgba(0, 0, 0, 0.1);
+      --border-color: #e0e0e0;
+      --accent: #2196F3;
+      --error-bg: #ffebee;
+      --error-text: #c62828;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg);
+      color: var(--text);
+      transition: background-color 0.3s, color 0.3s;
+      font-family: sans-serif;
+    }
+
+    body.dark {
+      --bg: #1a1a1a;
+      --text: #f0f0f0;
+      --card-bg: #2a2a2a;
+      --card-shadow: rgba(0, 0, 0, 0.3);
+      --border-color: #404040;
+      --accent: #42A5F5;
+      --error-bg: #3a2020;
+      --error-text: #ef5350;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2rem;
+    }
+
+    .weather-widget {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 4px 12px var(--card-shadow);
+      min-width: 300px;
+      text-align: center;
+      transition: background-color 0.3s, border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .weather-location {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+
+    .weather-temp {
+      font-size: 3rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0.5rem 0;
+    }
+
+    .weather-condition {
+      font-size: 1.1rem;
+      color: var(--text);
+      text-transform: capitalize;
+      margin-bottom: 1rem;
+    }
+
+    .weather-icon {
+      width: 80px;
+      height: 80px;
+    }
+
+    .weather-loading,
+    .weather-error {
+      padding: 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    .weather-loading {
+      color: var(--text);
+      font-style: italic;
+    }
+
+    .weather-error {
+      background-color: var(--error-bg);
+      color: var(--error-text);
+      border: 1px solid var(--error-text);
+      margin-bottom: 1rem;
+    }
+
+    .api-key-prompt {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .api-key-prompt p {
+      margin: 0 0 0.5rem 0;
+      color: var(--text);
+    }
+
+    .api-key-prompt input {
+      padding: 0.75rem;
+      width: 250px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--card-bg);
+      color: var(--text);
+      font-size: 0.95rem;
+      transition: border-color 0.2s;
+    }
+
+    .api-key-prompt input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .api-key-prompt button,
+    .retry-button {
+      padding: 0.75rem 1.5rem;
+      background-color: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: background-color 0.2s;
+    }
+
+    .api-key-prompt button:hover,
+    .retry-button:hover {
+      background-color: #1976D2;
+    }
+
+    .api-key-prompt small {
+      font-size: 0.85rem;
+      color: var(--text);
+      opacity: 0.7;
+    }
+
+    .api-key-prompt small a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .api-key-prompt small a:hover {
+      text-decoration: underline;
+    }
+
+    #toggle {
+      padding: 14px 28px;
+      font-size: 1rem;
+      background-color: #e53935;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    #toggle:hover {
+      background-color: #c62828;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="weather-widget" id="weatherWidget">
+      <div class="weather-loading">Loading weather data...</div>
+    </div>
+    <button id="toggle" onclick="toggleDark()">Turn on Dark Mode</button>
+  </div>
+
+  <script>
+    // Constants
+    const WEATHER_API_BASE = 'https://api.openweathermap.org/data/2.5/weather';
+    const API_KEY_STORAGE = 'openweathermap_api_key';
+
+    // State
+    let apiKey = localStorage.getItem(API_KEY_STORAGE);
+
+    // Error messages
+    const ERROR_MESSAGES = {
+      NO_GEOLOCATION: 'Location access is required to show weather data.',
+      PERMISSION_DENIED: 'Location permission denied. Please enable location access in your browser settings.',
+      INVALID_API_KEY: 'Invalid API key. Please check your OpenWeatherMap API key.',
+      NETWORK_ERROR: 'Unable to fetch weather data. Please check your internet connection.',
+      TIMEOUT: 'Request timed out. Please try again.',
+      UNKNOWN: 'An unexpected error occurred. Please try again later.'
+    };
+
+    // Initialize weather on page load
+    document.addEventListener('DOMContentLoaded', initWeather);
+
+    async function initWeather() {
+      if (!apiKey) {
+        showApiKeyPrompt();
+        return;
+      }
+      await fetchWeather();
+    }
+
+    function showApiKeyPrompt() {
+      const widget = document.getElementById('weatherWidget');
+      widget.innerHTML = `
+        <div class="api-key-prompt">
+          <p>Enter your OpenWeatherMap API key:</p>
+          <input type="text" id="apiKeyInput" placeholder="Your API key">
+          <div style="display: flex; gap: 0.5rem;">
+            <button onclick="testApiKey()">Test Key</button>
+            <button onclick="submitApiKey()">Submit & Load Weather</button>
+          </div>
+          <div id="testResult" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+          <small>
+            <a href="https://openweathermap.org/api" target="_blank" rel="noopener">
+              Get a free API key
+            </a> (may take 5-10 min to activate)
+          </small>
+        </div>
+      `;
+    }
+
+    async function testApiKey() {
+      const input = document.getElementById('apiKeyInput');
+      const key = input.value.trim();
+      const resultDiv = document.getElementById('testResult');
+
+      if (!key) {
+        resultDiv.innerHTML = '<span style="color: var(--error-text);">Please enter an API key</span>';
+        return;
+      }
+
+      resultDiv.innerHTML = '<span style="color: var(--text);">Testing API key...</span>';
+
+      try {
+        // Test with London as a known location
+        const testUrl = `${WEATHER_API_BASE}?q=London&appid=${key}&units=metric`;
+        const response = await fetch(testUrl);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          console.error('API Test Error:', response.status, errorData);
+
+          if (response.status === 401) {
+            resultDiv.innerHTML = `<span style="color: var(--error-text);">❌ Invalid API key. ${errorData?.message || 'Check your key or wait 5-10 min if just created.'}</span>`;
+          } else {
+            resultDiv.innerHTML = `<span style="color: var(--error-text);">❌ Error ${response.status}: ${errorData?.message || 'Unknown error'}</span>`;
+          }
+          return;
+        }
+
+        const data = await response.json();
+        console.log('API Test Success:', data);
+        resultDiv.innerHTML = `<span style="color: #4CAF50;">✅ API key is valid! You can now submit.</span>`;
+      } catch (error) {
+        console.error('Test error:', error);
+        resultDiv.innerHTML = `<span style="color: var(--error-text);">❌ Network error: ${error.message}</span>`;
+      }
+    }
+
+    function submitApiKey() {
+      const input = document.getElementById('apiKeyInput');
+      const key = input.value.trim();
+      if (!key) {
+        alert('Please enter an API key');
+        return;
+      }
+      apiKey = key;
+      localStorage.setItem(API_KEY_STORAGE, key);
+      fetchWeather();
+    }
+
+    async function getUserLocation() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error(ERROR_MESSAGES.NO_GEOLOCATION));
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude
+          }),
+          (error) => {
+            if (error.code === error.PERMISSION_DENIED) {
+              reject(new Error(ERROR_MESSAGES.PERMISSION_DENIED));
+            } else if (error.code === error.TIMEOUT) {
+              reject(new Error(ERROR_MESSAGES.TIMEOUT));
+            } else {
+              reject(new Error(ERROR_MESSAGES.UNKNOWN));
+            }
+          },
+          { timeout: 10000 }
+        );
+      });
+    }
+
+    async function fetchWeather() {
+      try {
+        showLoading();
+        const location = await getUserLocation();
+        const url = `${WEATHER_API_BASE}?lat=${location.lat}&lon=${location.lon}&appid=${apiKey}&units=metric`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          console.error('API Error:', response.status, errorData);
+
+          if (response.status === 401) {
+            // Invalid API key
+            localStorage.removeItem(API_KEY_STORAGE);
+            apiKey = null;
+            const message = errorData?.message || ERROR_MESSAGES.INVALID_API_KEY;
+            throw new Error(`${message}. Note: New API keys take 5-10 minutes to activate.`);
+          }
+          throw new Error(`${ERROR_MESSAGES.NETWORK_ERROR} (Status: ${response.status})`);
+        }
+
+        const data = await response.json();
+        displayWeather(data);
+      } catch (error) {
+        console.error('Weather fetch error:', error);
+        showError(error);
+      }
+    }
+
+    function showLoading() {
+      const widget = document.getElementById('weatherWidget');
+      widget.innerHTML = '<div class="weather-loading">Loading weather data...</div>';
+    }
+
+    function displayWeather(data) {
+      const widget = document.getElementById('weatherWidget');
+      const location = `${data.name}, ${data.sys.country}`;
+      const temp = Math.round(data.main.temp);
+      const condition = data.weather[0].description;
+      const iconCode = data.weather[0].icon;
+      const iconUrl = `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
+
+      widget.innerHTML = `
+        <div class="weather-location">${location}</div>
+        <div class="weather-temp">${temp}°C</div>
+        <div class="weather-condition">${condition}</div>
+        <img src="${iconUrl}" alt="${condition}" class="weather-icon">
+      `;
+    }
+
+    function showError(error) {
+      const widget = document.getElementById('weatherWidget');
+      const message = error.message || ERROR_MESSAGES.UNKNOWN;
+
+      // Check if it's an invalid API key error
+      if (message.includes('Invalid API key')) {
+        widget.innerHTML = `
+          <div class="weather-error">${message}</div>
+          <button class="retry-button" onclick="showApiKeyPrompt()">Re-enter API Key</button>
+        `;
+      } else {
+        widget.innerHTML = `
+          <div class="weather-error">${message}</div>
+          <button class="retry-button" onclick="fetchWeather()">Retry</button>
+        `;
+      }
+    }
+
+    // Dark mode toggle (existing functionality)
+    function toggleDark() {
+      const body = document.body;
+      const btn = document.getElementById('toggle');
+      body.classList.toggle('dark');
+      btn.textContent = body.classList.contains('dark')
+        ? 'Turn off Dark Mode'
+        : 'Turn on Dark Mode';
+    }
+  </script>
+</body>
+</html>

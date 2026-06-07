@@ -1,0 +1,7 @@
+# Ignore environment variables containing API keys
+.env
+uv.lock
+
+# Ignore uv virtual environments and other folders
+.venv/
+.claude/
